@@ -1,0 +1,183 @@
+---
+title: "MS Planner to Gantt Chart"'
+author: Lucy Murray
+date: 2023-05-14
+format: html
+editor: visual
+---
+
+# Environment Preparation
+
+## Load Packages
+
+```{r message=FALSE}
+# Define packages to be used, install them if not already installed, and open them with library
+packages <- c("openxlsx", "tidyverse", "ggplot2", "plotly")
+
+uninstalled_pkgs <- packages[!(packages %in% installed.packages()[, "Package"])]
+if (length(uninstalled_pkgs) > 0) install.packages(uninstalled_pkgs)
+invisible(lapply(packages, library, character.only = TRUE))
+```
+
+## Define Parameter Values
+
+Defines file location of local folders and files
+
+-   `local_dir` is the local folder path
+
+```{r parameter-values}
+# Local Directory
+user <- Sys.info()[["user"]]
+local_dir <- paste0("C:/Users/", user, "/Software/Git Local/msplanner-gantt/")
+MS_file <- paste0(local_dir, "Example Tracker.xlsx")
+```
+
+# Manipulate MS Planner Data
+
+### Read in File
+
+```{r}
+tbl_MS <- read.xlsx(xlsxFile = MS_file, colNames = TRUE)
+```
+
+### Clean Data
+
+```{r}
+# Creating vector for ordering display of labels
+labels <- unique(tbl_MS$Labels)
+
+# Creating vector for ordering display of tasks
+tasks <- unique(tbl_MS$Task.Name)
+
+# Creating Gantt DF
+gantt <- tbl_MS %>% 
+  filter(Progress %in% c("Not started", "In progress"),
+         Labels %in% c("Research Proj", "DB Proj;Research Proj", "Research Proj;Cloud Proj", "DB Proj;Research Proj;Cloud Proj", "Research Proj;Prog 2;Prog 3", "Research Proj;Prog 4", "Research Proj;Prog 1"),
+         Bucket.Name %in% c("BPI", "Deliverables Execution", "Roadblocks/Needs Review")) %>% 
+  mutate(Item = 1:nrow(.)) %>% 
+  
+  mutate(begin.date = if_else(is.na(Start.Date), Created.Date, Start.Date)) %>% 
+  
+  select(Item, begin.date, Due.Date, Task.Name, Labels) %>%
+
+  # Forcing Start/End Date to be in Single Column
+  gather("state", "date", 2:3) %>%
+  
+  # Convert Date
+  mutate(date = as.Date(date, "%m/%d/%Y")) %>% 
+  
+  # Convert labels and tasks into factors with levels
+  mutate(Activity=factor(Task.Name, tasks[length(tasks):1]),
+         Labels=factor(Labels, labels))
+```
+
+# Gantt
+
+### ggplot() method
+
+```{r}
+# Choose label colors
+labcols <- c("#548235", "#2E75B6", "#7030A0", "#cd6600", "#451e52", "#ddb644", "#2a8195")
+
+# Initialize the plot
+g <- ggplot(gantt, aes(date, Activity, color = Labels, group = Item)) +
+  
+  # Adjust bar thickness
+  geom_line(size = 10) +
+  
+  # Creating a vertical line for today's date
+  geom_vline(xintercept = as.numeric(Sys.Date()), 
+            color = "#999999",
+            linetype = "dashed",
+            size = 1
+             )  +
+  
+  # Creating breaks
+  scale_x_date(date_breaks = "1 month", date_minor_breaks = "1 week",
+             date_labels = "%B") +
+  
+  # Labeling the Gantt
+  labs(x="FY24, Quarter 1", y="Task", title="MS Planner Gantt") +
+  
+  geom_text(x = as.numeric(Sys.Date()), hjust = 1.2,
+              y = 10,
+              label = format(Sys.Date(), "%a %b %d"), 
+              color = "#999999", check_overlap = TRUE) +
+
+  # Set label colors
+  scale_color_manual(values=labcols, name="Project Tags") +
+  
+  # Choose theme
+  theme_bw()
+
+  #Display chart 
+  g
+```
+
+### geom_line() method
+
+```{r}
+# Choose label colors
+labcols <- c("#548235", "#2E75B6", "#7030A0", "#cd6600")
+
+# Initialize the plot
+g <- ggplot() +
+  
+  # Adjust bar thickness
+  geom_line(data = gantt,
+            mapping = aes(x=Activity, y=as.Date(date), color = Labels),
+            size = 10) +
+  
+  # Creating a vertical line for today's date
+  geom_hline(yintercept = as.numeric(Sys.Date()), 
+            color = "#999999",
+            linetype = "dashed",
+            size = 1
+             )  +
+  
+  # Flipping coordinates
+  coord_flip() +
+  
+  # Creating breaks
+  scale_y_date(date_breaks = "1 month", date_minor_breaks = "1 week",
+             date_labels = "%B") +
+  
+  # Labeling the Gantt
+  labs(x="Task", y="OY2, Q1 (2023)", title="MS Planner Gantt") +
+  
+  geom_text(x = 10,
+            y = as.numeric(Sys.Date()),
+            hjust = -0.15,
+            label = format(Sys.Date(), "%a %b %d"),
+            color = "#999999", check_overlap = TRUE) +
+
+  # Set label colors
+  scale_color_manual(values=labcols, name="Project Tags") +
+  
+  # Choose theme
+  theme_bw()
+
+  #Display chart 
+  g
+```
+
+### Reprint with Quarters
+
+```{r}
+seq.Date(as.Date("2022-12-01"), as.Date("2023-12-01"), "quarter")
+
+g <- g + scale_x_date(breaks=seq.Date(as.Date("2022-12-01"), as.Date("2023-12-01"), "quarter"), labels=c(1, 2, 3, 4, 5))
+g
+
+```
+
+# Save Chart
+
+```{r}
+time_formatted <- format(Sys.time(), format = "%m-%d_%H%M")
+file_out_name <- paste0("FY24_Gantt_", time_formatted, ".png") 
+
+# Update proj_dir as needed
+ggsave(filename = file_out_name, plot = g, path = local_dir, width = 8, height = 5, units = c("in"))
+cat(paste0("The FY24 Gantt has been generated! The file has been saved to: \n", local_dir, "", file_out_name))
+```
