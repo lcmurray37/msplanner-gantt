@@ -12,7 +12,7 @@ editor: visual
 
 ```{r message=FALSE}
 # Define packages to be used, install them if not already installed, and open them with library
-packages <- c("openxlsx", "tidyverse", "ggplot2", "plotly")
+packages <- c("openxlsx", "tidyverse", "ggplot2", "plotly", "lubridate")
 
 uninstalled_pkgs <- packages[!(packages %in% installed.packages()[, "Package"])]
 if (length(uninstalled_pkgs) > 0) install.packages(uninstalled_pkgs)
@@ -54,10 +54,25 @@ gantt <- tbl_MS %>%
   filter(Progress %in% c("Not started", "In progress"),
          Labels %in% c("Research Proj", "DB Proj;Research Proj", "Research Proj;Cloud Proj", "DB Proj;Research Proj;Cloud Proj", "Research Proj;Prog 2;Prog 3", "Research Proj;Prog 4", "Research Proj;Prog 1"),
          Bucket.Name %in% c("BPI", "Deliverables Execution", "Roadblocks/Needs Review")) %>% 
-  mutate(Item = 1:nrow(.)) %>% 
   
   mutate(begin.date = if_else(is.na(Start.Date), Created.Date, Start.Date)) %>% 
+
+  mutate(Due.Date = if_else(is.na(Due.Date), Created.Date, Due.Date)) %>% 
+    
+  mutate(begin.date = as.Date(begin.date, "%m/%d/%Y")) %>% 
   
+  mutate(Due.Date = as.Date(Due.Date, "%m/%d/%Y")) %>% 
+  
+  # mutate("date_diff" = difftime(Due.Date, begin.date, units = "days")) %>%
+  # 
+  # mutate(num_days = as.numeric(date_diff)) %>%
+  # 
+  # mutate(num_days = replace_na(num_days, 1)) %>%
+  # 
+  # dplyr::arrange(num_days) %>% 
+  
+  mutate(Item = 1:nrow(.)) %>% 
+
   select(Item, begin.date, Due.Date, Task.Name, Labels) %>%
 
   # Forcing Start/End Date to be in Single Column
@@ -77,7 +92,8 @@ gantt <- tbl_MS %>%
 
 ```{r}
 # Choose label colors
-labcols <- c("#548235", "#2E75B6", "#7030A0", "#cd6600", "#451e52", "#ddb644", "#2a8195")
+labcols <- c("#548235", "#2E75B6", "#7030A0",
+             "#cd6600", "#451e52", "#ddb644", "#2a8195")
 
 # Initialize the plot
 g <- ggplot(gantt, aes(date, Activity, color = Labels, group = Item)) +
@@ -117,23 +133,51 @@ g <- ggplot(gantt, aes(date, Activity, color = Labels, group = Item)) +
 ### geom_line() method
 
 ```{r}
+
+# Create the desired df
+gantt_alt <- tbl_MS %>% 
+  filter(Progress %in% c("Not started", "In progress"),
+         Labels %in% c("Research Proj", "DB Proj;Research Proj", "Research Proj;Cloud Proj", "DB Proj;Research Proj;Cloud Proj", "Research Proj;Prog 2;Prog 3", "Research Proj;Prog 4", "Research Proj;Prog 1"),
+         Bucket.Name %in% c("BPI", "Deliverables Execution", "Roadblocks/Needs Review")) %>% 
+  
+  mutate(begin.date = if_else(is.na(Start.Date), Created.Date, Start.Date)) %>% 
+
+  mutate(Due.Date = if_else(is.na(Due.Date), Created.Date, Due.Date)) %>% 
+    
+  mutate(begin.date = as.Date(begin.date, "%m/%d/%Y")) %>% 
+  
+  mutate(Due.Date = as.Date(Due.Date, "%m/%d/%Y")) %>% 
+
+  select(begin.date, Due.Date, Task.Name, Labels) %>%
+  
+  gather(key=date_type, value=date, -Task.Name, -Labels) %>% 
+  
+  group_by(Task.Name, Labels, date_type) %>%
+  
+  arrange(Labels) %>% 
+  
+  ungroup()
+  
 # Choose label colors
-labcols <- c("#548235", "#2E75B6", "#7030A0", "#cd6600")
+labcols <- c("#548235", "#2E75B6", "#7030A0",
+             "#cd6600", "#451e52", "#ddb644", "#2a8195")
 
 # Initialize the plot
 g <- ggplot() +
   
-  # Adjust bar thickness
-  geom_line(data = gantt,
-            mapping = aes(x=Activity, y=as.Date(date), color = Labels),
-            size = 10) +
+   geom_line(data=gantt_alt, mapping=aes(x=fct_rev(fct_inorder(Task.Name)), y=date, color=Labels), size=10) +
   
-  # Creating a vertical line for today's date
-  geom_hline(yintercept = as.numeric(Sys.Date()), 
-            color = "#999999",
-            linetype = "dashed",
-            size = 1
-             )  +
+  # # Adjust bar thickness
+  # geom_line(data = gantt,
+  #           mapping = aes(x=Activity, y=as.Date(date), color = Labels),
+  #           size = 10) +
+  # 
+  # # Creating a vertical line for today's date
+  # geom_hline(yintercept = as.numeric(Sys.Date()), 
+  #           color = "#999999",
+  #           linetype = "dashed",
+  #           size = 1
+  #            )  +
   
   # Flipping coordinates
   coord_flip() +
@@ -161,16 +205,6 @@ g <- ggplot() +
   g
 ```
 
-### Reprint with Quarters
-
-```{r}
-seq.Date(as.Date("2022-12-01"), as.Date("2023-12-01"), "quarter")
-
-g <- g + scale_x_date(breaks=seq.Date(as.Date("2022-12-01"), as.Date("2023-12-01"), "quarter"), labels=c(1, 2, 3, 4, 5))
-g
-
-```
-
 # Save Chart
 
 ```{r}
@@ -178,6 +212,6 @@ time_formatted <- format(Sys.time(), format = "%m-%d_%H%M")
 file_out_name <- paste0("FY24_Gantt_", time_formatted, ".png") 
 
 # Update proj_dir as needed
-ggsave(filename = file_out_name, plot = g, path = local_dir, width = 8, height = 5, units = c("in"))
+ggsave(filename = file_out_name, plot = g, path = local_dir, width = 12, height = 8, units = c("in"))
 cat(paste0("The FY24 Gantt has been generated! The file has been saved to: \n", local_dir, "", file_out_name))
 ```
